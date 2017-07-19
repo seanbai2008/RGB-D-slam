@@ -11,7 +11,37 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  pcl_ros
+  cv_bridge
 )
+
+find_package(PCL REQUIRED)
+
+find_package(OpenCV REQUIRED)
+
+include_directories(${PCL_INCLUDE_DIRS})
+
+include_directories(${OpenCV_INCLUDE_DIRS})
+
+link_directories(${PCL_LIBRARY_DIRS})
+
+#设定可执行二进制文件的目录
+SET( EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+
+#设定存放编译出来的库文件的目录
+SET( LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+#并且把该目录设为连接目录
+LINK_DIRECTORIES( ${PROJECT_SOURCE_DIR}/lib)
+
+#设定头文件目录
+INCLUDE_DIRECTORIES( ${PROJECT_SOURCE_DIR}/include)
+
+ADD_EXECUTABLE( main ${PROJECT_SOURCE_DIR}/src/generatePointCloud.cpp )
+
+#编译的时候出现未定义的函数的时候需链接相应函数的库
+target_link_libraries( main ${OpenCV_LIBS}  ${PCL_LIBRARIES} -lboost_system)
+
+
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
