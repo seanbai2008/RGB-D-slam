@@ -15,6 +15,8 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
 )
 
+# FIND_PACKAGE( PCL REQUIRED COMPONENTS common io )
+
 find_package(PCL REQUIRED)
 
 find_package(OpenCV REQUIRED)
@@ -36,10 +38,10 @@ LINK_DIRECTORIES( ${PROJECT_SOURCE_DIR}/lib)
 #设定头文件目录
 INCLUDE_DIRECTORIES( ${PROJECT_SOURCE_DIR}/include)
 
-ADD_EXECUTABLE( main ${PROJECT_SOURCE_DIR}/src/generatePointCloud.cpp )
+ADD_EXECUTABLE( generatePointCloud ${PROJECT_SOURCE_DIR}/src/generatePointCloud.cpp )
 
 #编译的时候出现未定义的函数的时候需链接相应函数的库
-target_link_libraries( main ${OpenCV_LIBS}  ${PCL_LIBRARIES} -lboost_system)
+target_link_libraries( generatePointCloud ${OpenCV_LIBS}  ${PCL_LIBRARIES} -lboost_system)
 
 
 
