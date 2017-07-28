@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(RGB-D)
 
+SET( CMAKE_CXX_COMPILER "g++")
+
+SET( CMAKE_BUILD_TYPE Release  )
+
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
@@ -13,17 +17,33 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   pcl_ros
   cv_bridge
+  image_transport
 )
+
+LIST( APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules )
+SET( G2O_ROOT /opt/ros/indigo/include/g2o )
+FIND_PACKAGE( G2O )
+# CSparse
+FIND_PACKAGE( CSparse )
+
+INCLUDE_DIRECTORIES( ${G2O_INCLUDE_DIRS} ${CSPARSE_INCLUDE_DIRS} /usr/include/suitesparse)
+
 
 # FIND_PACKAGE( PCL REQUIRED COMPONENTS common io )
 
 find_package(PCL REQUIRED)
 
-find_package(OpenCV REQUIRED)
+find_package(OpenCV 3.1.0 REQUIRED )
+
+find_package(Eigen3 REQUIRED)
+
+INCLUDE_DIRECTORIES( ${PROJECT_SOURCE_DIR}/include)
 
 include_directories(${PCL_INCLUDE_DIRS})
 
 include_directories(${OpenCV_INCLUDE_DIRS})
+
+include_directories(${EIGEN3_INCLUDE_DIR})
 
 link_directories(${PCL_LIBRARY_DIRS})
 
@@ -39,12 +59,29 @@ LINK_DIRECTORIES( ${PROJECT_SOURCE_DIR}/lib)
 INCLUDE_DIRECTORIES( ${PROJECT_SOURCE_DIR}/include)
 
 ADD_EXECUTABLE( generatePointCloud ${PROJECT_SOURCE_DIR}/src/generatePointCloud.cpp )
+#ADD_EXECUTABLE( detectFeatures ${PROJECT_SOURCE_DIR}/src/detectFeatures.cpp )
+#ADD_EXECUTABLE( joinPointCloud ${PROJECT_SOURCE_DIR}/src/joinPointCloud.cpp )
+ADD_EXECUTABLE( test_ground ${PROJECT_SOURCE_DIR}/src/test_ground.cpp )
+ADD_EXECUTABLE( visualOdometry ${PROJECT_SOURCE_DIR}/src/visualOdometry.cpp )
+ADD_EXECUTABLE( slamEnd ${PROJECT_SOURCE_DIR}/src/slamEnd.cpp )
+ADD_LIBRARY( slamBase ${PROJECT_SOURCE_DIR}/src/slamBase.cpp )
+
+
+#ADD_EXECUTABLE( slamBase ${PROJECT_SOURCE_DIR}/src/detectFeatures.cpp )
 
 #编译的时候出现未定义的函数的时候需链接相应函数的库
 target_link_libraries( generatePointCloud ${OpenCV_LIBS}  ${PCL_LIBRARIES} -lboost_system)
 
+target_link_libraries( slamBase ${OpenCV_LIBS}  ${PCL_LIBRARIES}  ${EIGEN3_INCLUDE_DIR} -lopencv_nonfree)
 
+#target_link_libraries( detectFeatures ${OpenCV_LIBS}  ${PCL_LIBRARIES} -lopencv_nonfree slamBase)
+#target_link_libraries( joinPointCloud ${OpenCV_LIBS}  ${PCL_LIBRARIES} ${EIGEN3_INCLUDE_DIR} -lopencv_nonfree slamBase)
 
+target_link_libraries( visualOdometry ${OpenCV_LIBS}  ${PCL_LIBRARIES} ${EIGEN3_INCLUDE_DIR} -lopencv_nonfree slamBase)
+
+target_link_libraries( test_ground ${catkin_LIBRARIES} ${OpenCV_LIBS}  ${PCL_LIBRARIES})
+
+target_link_libraries( slamEnd ${OpenCV_LIBS}  ${PCL_LIBRARIES} slamBase g2o_core g2o_types_slam3d g2o_solver_csparse g2o_stuff g2o_csparse_extension ${CSPARSE_LIBRARY})
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 

@@ -10,6 +10,7 @@ using namespace std;
  // PCL 库
  #include <pcl/io/pcd_io.h>
  #include <pcl/point_types.h>
+ #include <pcl/filters/statistical_outlier_removal.h>
 
  // 定义点云类型
  typedef pcl::PointXYZRGBA PointT;
@@ -17,10 +18,15 @@ using namespace std;
 
  // 相机内参
  const double camera_factor = 1000;
- const double camera_cx = 325.5;
- const double camera_cy = 253.5;
- const double camera_fx = 518.0;
- const double camera_fy = 519.0;
+ // const double camera_cx = 325.5;
+ // const double camera_cy = 253.5;
+ // const double camera_fx = 518.0;
+ // const double camera_fy = 519.0;
+
+ const double camera_cx = 971.96923828125;
+ const double camera_cy = 593.4072875976562 ;
+ const double camera_fx = 1388.6114501953125;
+ const double camera_fy = 1388.6114501953125;
 
  // 主函数
  int main( int argc, char** argv )
@@ -31,16 +37,18 @@ using namespace std;
      cv::Mat rgb, depth;
      // 使用cv::imread()来读取图像
      // API: http://docs.opencv.org/modules/highgui/doc/reading_and_writing_images_and_video.html?highlight=imread#cv2.imread
-     rgb = cv::imread( "/home/fan/test_dir/develop/src/RGB-D/src/data/rgb.png" );
+     rgb = cv::imread( "/home/fan/test_dir/develop/src/RGB-D/src/data/rgb3.png" );
      // rgb 图像是8UC3的彩色图像
      // depth 是16UC1的单通道图像，注意flags设置-1,表示读取原始数据不做任何修改
-     depth = cv::imread( "/home/fan/test_dir/develop/src/RGB-D/src/data/depth.png", -1 );
+     depth = cv::imread( "/home/fan/test_dir/develop/src/RGB-D/src/data/depth3.png", -1 );
 
      // 点云变量
      // 使用智能指针，创建一个空点云。这种指针用完会自动释放。
      PointCloud::Ptr cloud ( new PointCloud );
-     // 遍历深度图
+     pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZRGBA>);
 
+     // 遍历深度图
+     cout<<depth.size()<<endl;
 
      for (int m = 0; m < depth.rows; m++){
          for (int n=0; n < depth.cols; n++)
@@ -72,16 +80,22 @@ using namespace std;
          }
        }
 
+
+     pcl::StatisticalOutlierRemoval<pcl::PointXYZRGBA> sor;
+     sor.setInputCloud (cloud);
+     sor.setMeanK (50);
+     sor.setStddevMulThresh (1.0);
+     sor.filter (*cloud_filtered);
      // 设置并保存点云
-     cloud->height = 1;
-     cloud->width = cloud->points.size();
-     cout<<"point cloud size = "<<cloud->points.size()<<endl;
+     cloud_filtered->height = 1;
+     cloud_filtered->width = cloud_filtered->points.size();
+     cout<<"point cloud size = "<<cloud_filtered->points.size()<<endl;
 
      //True if no points are invalid
-     cloud->is_dense = false;
-     pcl::io::savePCDFile( "/home/fan/test_dir/develop/src/RGB-D/pointcloud.pcd", *cloud );
+     cloud_filtered->is_dense = false;
+     pcl::io::savePCDFile( "/home/fan/test_dir/develop/src/RGB-D/pointcloud.pcd", *cloud_filtered );
      // 清除数据并退出
-     cloud->points.clear();
+     cloud_filtered->points.clear();
      cout<<"Point cloud saved."<<endl;
      return 0;
  }
