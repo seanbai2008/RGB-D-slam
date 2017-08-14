@@ -5,168 +5,226 @@
 #include "sensor_msgs/Image.h"
 #include <sensor_msgs/image_encodings.h>
 
-#include <opencv2/highgui/highgui.hpp>
+// #include "opencv2/xfeatures2d.hpp"
+// #include <opencv2/features2d/features2d.hpp>
+// #include <opencv2/calib3d/calib3d.hpp>
+
+
+
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
 
 #include <message_filters/subscriber.h>
 #include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
+
+#include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/passthrough.h>
+
+#include <g2o/types/slam3d/types_slam3d.h>
+#include <g2o/core/sparse_optimizer.h>
+#include <g2o/core/block_solver.h>
+#include <g2o/core/factory.h>
+#include <g2o/core/optimization_algorithm_factory.h>
+#include <g2o/core/optimization_algorithm_gauss_newton.h>
+#include <g2o/solvers/csparse/linear_solver_csparse.h>
+#include <g2o/core/robust_kernel.h>
+#include <g2o/core/robust_kernel_factory.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
 
 #include "slamBase.h"
 
 using namespace std;
 
-const double camera_factor = 1000;
-const double camera_cx = 971.96923828125;
-const double camera_cy = 593.4072875976562 ;
-const double camera_fx = 1388.6114501953125;
-const double camera_fy = 1388.6114501953125;
+typedef g2o::BlockSolver_6_3 SlamBlockSolver;
+typedef g2o::LinearSolverCSparse< SlamBlockSolver::PoseMatrixType > SlamLinearSolver;
+
+// const double camera_factor = 1000;
+// const double camera_cx = 645.9493408203125;
+// const double camera_cy = 385.9999084472656 ;
+// const double camera_fx = 680.7481079101562;
+// const double camera_fy = 680.7481079101562;
+
+CAMERA_INTRINSIC_PARAMETERS camera;
+ParameterReader pd;
+
+static cv::Ptr<cv::FeatureDetector> detector = cv::FeatureDetector::create( "ORB" );
+static cv::Ptr<cv::DescriptorExtractor> descriptor = cv:: DescriptorExtractor::create( "ORB" );
+
+static Eigen::Isometry3d Odom = Eigen::Isometry3d::Identity();
+static  ros::Publisher odom_pub;
+
+static g2o::SparseOptimizer globalOptimizer;  // 最后用的就是这个东东
+static SlamLinearSolver* linearSolver;
+static SlamBlockSolver* blockSolver;
+static g2o::OptimizationAlgorithmLevenberg* solver;
+
+static vector< FRAME > keyframes;
+
+bool visualize = pd.getData("visualize_pointcloud")==string("yes");
+int min_inliers = atoi( pd.getData("min_inliers").c_str() );
+double max_norm = atof( pd.getData("max_norm").c_str() );
+
+
+
+FRAME readFrame( const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image::ConstPtr& depth , int& frame_count);
+
+double normofTransform( cv::Mat rvec, cv::Mat tvec );
+
+
+
+// static PointCloud::Ptr cloud;
+// static pcl::visualization::CloudViewer viewer("viewer");
 
 void callback(const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image::ConstPtr& depth){
-  static int frame = 0;
+  static FRAME currFrame, lastFrame;
+  static int frame_count = 0;
+  static RESULT_OF_PNP result;
+  static g2o::VertexSE3* v;
+
+  switch(frame_count){
+    case 0:
+
+      lastFrame = readFrame(rgb,depth, frame_count);
+      computeKeyPointsAndDesp(lastFrame);
 
 
-  cout<<"RGB"<<rgb->header<<endl;
-  cout<<"Depth"<<depth->encoding<<endl;
+      globalOptimizer.setAlgorithm( solver );
+      globalOptimizer.setVerbose( false );
 
-  cv_bridge::CvImageConstPtr cv_ptr;
-  cv_ptr = cv_bridge::toCvShare(rgb, "bgr8");
+      // 向globalOptimizer增加第一个顶点
+      v = new g2o::VertexSE3();
+      v->setId( frame_count );
+      v->setEstimate( Eigen::Isometry3d::Identity() ); //估计为单位矩阵
+      v->setFixed( true ); //第一个顶点固定，不用优化
+      globalOptimizer.addVertex( v );
 
+      keyframes.push_back( currFrame );
 
-  cv::Mat rgb_mat,dep_mat;
-  rgb_mat = cv_ptr->image;
+      // cloud = image2PointCloud( lastFrame.rgb, lastFrame.depth, camera );
+      // viewer.showCloud( cloud );
+      break;
 
-  cv_bridge::CvImageConstPtr cv_ptr2;
+    default:
+      //get new msg
+      currFrame = readFrame(rgb,depth ,frame_count);
+      computeKeyPointsAndDesp(currFrame);
 
-
-  cv_ptr2 = cv_bridge::toCvShare(depth,depth->encoding);
-
-  cout<<"Done"<<depth->encoding<<endl;
-
-  // (cv_ptr2->image).convertTo(dep_mat,CV_16UC1);
-
-  // cv::normalize(dep_mat, dep_mat, 0, 1, cv::NORM_MINMAX,-1 );
-
-
-  // for (int m = 0; m < dep_mat.rows; m++){
-  //     for (int n=0; n < dep_mat.cols; n++)
-  //     {
-  //      if (dep_mat.ptr<short>(m)[n]!= 0)cout<<dep_mat.ptr<short>(m)[n]<<endl;
-  //   }
-  // }
-
-  // cout<< depth->encoding<<endl;
-
-// cout<<dep_mat.ptr<<endl;
-// exit();
-
-  PointCloud::Ptr cloud ( new PointCloud );
-
-  // cout<<rgb_mat.size()<<endl;
-  cout<<depth->encoding<<endl;
-
-  dep_mat = cv_ptr->image;
-
-  static ushort max_ =  0;
-  static ushort min_ = 6553;
-
-  for (int m = 0; m < dep_mat.rows; m++){
-      for (int n=0; n < dep_mat.cols; n++)
-      {
-
-          // 获取深度图中(m,n)处的值
-
-          ushort d = dep_mat.ptr<ushort>(m)[n];
-
-          // cout<<d<<endl;
-
-          // cout<<d<<endl;
-          // d 可能没有值，若如此，跳过此点
-          if (d <=0 || d!=d)
-              continue;
-          // d 存在值，则向点云增加一个点
-          // cout<< " "<<m  <<" "<<n<<" "<<d<<endl;
-          PointT p;
-
-          max_ = max(d,max_);
-
-          min_ = min(d,min_);
-          // cout<<d<<endl;
-
-          // 计算这个点的空间坐标
-          p.z = double(d)/1000;
-          p.x = (n - camera_cx) * p.z / camera_fx;
-          p.y = (m - camera_cy) * p.z / camera_fy;
+      // result = estimateMotion(lastFrame,currFrame,camera);
+      CHECK_RESULT PnP_result = checkKeyframes( keyframes.back(), currFrame, globalOptimizer, true, camera ); //匹配该帧与keyframes里最后一帧
 
 
+      //if no odom is updated, still publish the old one
+      odom_pub.publish(OdometryToRos(Odom));
+
+      switch (PnP_result){
+      case NOT_MATCHED:
+          //没匹配上，直接跳过
+          cout<<"Not enough inliers."<<endl;
+          break;
+      case TOO_FAR_AWAY:
+          // 太近了，也直接跳
+          cout<<"Too far away, may be an error."<<endl;
+          break;
+      case TOO_CLOSE:
+          // 太远了，可能出错了
+          cout<<"Too close, not a keyframe"<<endl;
+          break;
+      case KEYFRAME:
+          cout<<"This is a new keyframe"<<endl;
 
 
-          // cout<<p.x<<" "<<p.y<<endl;
-          // cout<<p.x<<" "<<p.y<< " "<<p.z<<endl;
-          // p.z = 1;
-          // p.x = 1;
-          // p.y = 1;
+          // 不远不近，刚好
+          /**
+           * This is important!!
+           * This is important!!
+           * This is important!!
+           * (very important so I've said three times!)
+           */
+          // 检测回环
+          // if (check_loop_closure)
+          // {
+          //     checkNearbyLoops( keyframes, currFrame, globalOptimizer );
+          //     checkRandomLoops( keyframes, currFrame, globalOptimizer );
+          // }
+          // keyframes.push_back( currFrame );
+          //
+          //
+          // globalOptimizer.initializeOptimization();
+          // globalOptimizer.optimize( 100 ); //可以指定优化步数
 
-          // 从rgb图像中获取它的颜色
-          // rgb是三通道的BGR格式图，所以按下面的顺序获取颜色
-          p.b = rgb_mat.ptr<uchar>(m)[n*3];
-          p.g = rgb_mat.ptr<uchar>(m)[n*3+1];
-          p.r = rgb_mat.ptr<uchar>(m)[n*3+2];
+          // EulerToOdometry(result.rvec, result.tvec, Odom);
+          //
+          // Eigen::Isometry3d T = cvMat2Eigen( result.rvec, result.tvec );
 
-          // 把p加入到点云中
-          cloud->points.push_back( p );
+          // lastFrame = currFrame;
+
+          break;
       }
-    }
-  cout<<"here"<<min_<<" "<<max_<<endl;
-  cloud->height = 1;
-  cloud->width = cloud->points.size();
-  cout<<"point cloud size = "<<cloud->points.size()<<endl;
-  cloud->is_dense = false;
-  pcl::io::savePCDFile( "/home/fan/test_dir/develop/src/RGB-D/pointcloud.pcd", *cloud );
-  cloud->points.clear();
-  cout<<"Point cloud saved."<<endl;
-
-  // cout<<im<<endl;
-
-  // cv::imwrite("haha.jpg",cv_bridge::toCvShare(msg, "bgr8")->image);
-  // cv::waitKey(30);
-
-
-  exit(0);
-
-  // frame++;
-  //
-  // if(frame == 2) {
-  //
-  //
-  //   exit(1);
-  // }
-
+      break;
+  }
 }
 
 int main( int argc, char** argv ){
 
+  cout<<"Initializing ..."<<endl;
+
   ros::init(argc, argv, "talker");
+
+  camera.fx = atof( pd.getData( "camera.fx" ).c_str());
+  camera.fy = atof( pd.getData( "camera.fy" ).c_str());
+  camera.cx = atof( pd.getData( "camera.cx" ).c_str());
+  camera.cy = atof( pd.getData( "camera.cy" ).c_str());
+  camera.scale = atof( pd.getData( "camera.scale" ).c_str() );
+
+
+  linearSolver = new SlamLinearSolver();
+  linearSolver->setBlockOrdering( false );
+  blockSolver = new SlamBlockSolver(linearSolver);
+  solver = new g2o::OptimizationAlgorithmLevenberg( blockSolver);
+  globalOptimizer.setAlgorithm( solver );
+  globalOptimizer.setVerbose( false );
 
   ros::NodeHandle nh;
 
-  // image_transport::ImageTransport it(n);
-  message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/zed/left/image_raw_color", 10);
-  message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/zed/depth/depth_registered", 10);
-  message_filters::Subscriber<sensor_msgs::CameraInfo> came_sub(nh, "/zed/left/CameraInfo", 10);
-  message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::Image> sync(rgb_sub, depth_sub,10);
+  odom_pub = nh.advertise<nav_msgs::Odometry>("/visual_odom", 100);
+
+  // initailize the callback function for taking the depth and image information from ZED
+  message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_rect_color", 10);
+  message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_rect", 10);
+  // message_filters::Subscriber<sensor_msgs::CameraInfo> came_sub(nh, "/camera/depth/camera_info", 10);
+  // message_filters::TimeSynchronizer<sensor_msgs::Image, sensor_msgs::Image> sync(rgb_sub, depth_sub,10);
+
+  message_filters::Synchronizer<message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> > sync(message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image>(10), rgb_sub, depth_sub);
+
   sync.registerCallback(boost::bind(&callback, _1, _2));
-
-
-  // cv::startWindowThread();
-  //
-  // cv::namedWindow("view");
-
-  // image_transport::Subscriber sub = it.subscribe("/zed/left/image_rect_color", 1000, chatterCallback);
 
   ros::spin();
 
-  // cv::destroyWindow("view");
-
   return 0;
+}
+
+//read ROS message function, get rgb image and depth information from camera
+FRAME readFrame( const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image::ConstPtr& depth , int& frame_count){
+
+  //here is to obtain the rgb and depth info from Ros message
+  FRAME frame;
+
+  cv_bridge::CvImageConstPtr cv_ptr1;
+
+  //what is the difference between cvtocopy and cvtoshare?
+  cv_ptr1 = cv_bridge::toCvCopy(rgb, "bgr8");
+
+  frame.rgb = cv_ptr1->image;
+  cv_bridge::CvImageConstPtr cv_ptr2;
+  cv_ptr2 = cv_bridge::toCvCopy(depth,depth->encoding);
+
+  frame.depth = cv_ptr2->image;
+
+  frame.frameID = frame_count;
+
+  frame_count++;
+
+  return frame;
 }

@@ -10,7 +10,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
-using namespace std;
+
 
 #include "slamBase.h"
 
@@ -31,6 +31,8 @@ using namespace std;
 // 把g2o的定义放到前面
 typedef g2o::BlockSolver_6_3 SlamBlockSolver;
 typedef g2o::LinearSolverCSparse< SlamBlockSolver::PoseMatrixType > SlamLinearSolver;
+
+using namespace std;
 
 CAMERA_INTRINSIC_PARAMETERS camera;
 
@@ -68,15 +70,15 @@ int main( int argc, char** argv )
     int currIndex = startIndex; // 当前索引为currIndex
     FRAME currFrame = readFrame( currIndex, pd ); // 当前帧数据
 
-    cv::Ptr<cv::FeatureDetector> detector;
-    cv::Ptr<cv::DescriptorExtractor> descriptor;
-
-    detector = cv::AKAZE::create();
-    descriptor = cv::AKAZE::create();
+    // cv::Ptr<cv::FeatureDetector> detector;
+    // cv::Ptr<cv::DescriptorExtractor> descriptor;
+    //
+    // cv::Ptr<cv::FeatureDetector> _detector = cv::FeatureDetector::create( "ORB" );
+    // cv::Ptr<cv::DescriptorExtractor> _descriptor = cv:: DescriptorExtractor::create( "ORB" );
     cout<<"here ..."<<endl;
     cout<<currFrame.rgb.size()<< " " <<currFrame.depth.size()<<endl;
     // CAMERA_INTRINSIC_PARAMETERS camera = getDefaultCamera();
-    computeKeyPointsAndDesp( currFrame, detector, descriptor );
+    computeKeyPointsAndDesp( currFrame );
     cout<<"here ..."<<endl;
     PointCloud::Ptr cloud = image2PointCloud( currFrame.rgb, currFrame.depth, camera );
 
@@ -118,7 +120,7 @@ int main( int argc, char** argv )
     {
         cout<<"Reading files "<<currIndex<<endl;
         FRAME currFrame = readFrame( currIndex,pd ); // 读取currFrame
-        computeKeyPointsAndDesp( currFrame, detector, descriptor ); //提取特征
+        computeKeyPointsAndDesp( currFrame ); //提取特征
         CHECK_RESULT result = checkKeyframes( keyframes.back(), currFrame, globalOptimizer ); //匹配该帧与keyframes里最后一帧
 
         cout<<result<<endl;
@@ -151,8 +153,8 @@ int main( int argc, char** argv )
             // 检测回环
             if (check_loop_closure)
             {
-                checkNearbyLoops( keyframes, currFrame, globalOptimizer );
-                checkRandomLoops( keyframes, currFrame, globalOptimizer );
+                checkNearbyLoops( keyframes, currFrame, globalOptimizer, camera);
+                checkRandomLoops( keyframes, currFrame, globalOptimizer, camera );
             }
             keyframes.push_back( currFrame );
             break;
@@ -187,6 +189,8 @@ int main( int argc, char** argv )
         // 从g2o里取出一帧
         g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(globalOptimizer.vertex( keyframes[i].frameID ));
         Eigen::Isometry3d pose = vertex->estimate(); //该帧优化后的位姿
+
+        cout<< pose.matrix()<<endl;
         PointCloud::Ptr newCloud = image2PointCloud( keyframes[i].rgb, keyframes[i].depth, camera ); //转成点云
         // 以下是滤波
         voxel.setInputCloud( newCloud );

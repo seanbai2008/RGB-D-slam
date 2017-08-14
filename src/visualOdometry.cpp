@@ -8,6 +8,11 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+
+
+#include <opencv2/features2d/features2d.hpp>
+#include <opencv2/calib3d/calib3d.hpp>
+
 using namespace std;
 
 #include "slamBase.h"
@@ -38,13 +43,8 @@ int main( int argc, char** argv )
     camera.cy = atof( pd.getData( "camera.cy" ).c_str());
     camera.scale = atof( pd.getData( "camera.scale" ).c_str() );
 
-    cv::Ptr<cv::FeatureDetector> detector;
-    cv::Ptr<cv::DescriptorExtractor> descriptor;
 
-    detector = cv::BRISK::create();
-    descriptor = cv::BRISK::create();
-
-    computeKeyPointsAndDesp( lastFrame, detector, descriptor );
+    computeKeyPointsAndDesp( lastFrame);
 
     PointCloud::Ptr cloud = image2PointCloud( lastFrame.rgb, lastFrame.depth, camera );
     cout<<"Initializing ..."<<endl;
@@ -60,7 +60,7 @@ int main( int argc, char** argv )
     {
         cout<<"Reading files "<<currIndex<<endl;
         FRAME currFrame = readFrame( currIndex,pd ); // 读取currFrame
-        computeKeyPointsAndDesp( currFrame, detector, descriptor );
+        computeKeyPointsAndDesp( currFrame);
         // 比较currFrame 和 lastFrame
         RESULT_OF_PNP result = estimateMotion( lastFrame, currFrame, camera );
         if ( result.inliers < min_inliers ) //inliers不够，放弃该帧
