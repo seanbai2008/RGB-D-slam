@@ -1,0 +1,24 @@
+<launch>
+	<arg name="camera" default="camera" />
+	<arg name="publish_tf" default="false" />
+    <!-- Odometry -->
+	<node pkg="rtabmap_ros" type="rgbd_odometry" name="rgbd_odometry" output="screen">
+
+		<remap from="rgb/image"       to="/camera/rgb/image_rect_color"/>
+		<remap from="depth/image"     to="/camera/depth_registered/image_raw"/>
+		<remap from="rgb/camera_info" to="/camera/depth_registered/camera_info"/>
+		<remap from="odom" to="visual_odom"/>
+		<param name="odom_frame_id" type="string" value="visual_odom"/>
+		<param name="frame_id" type="string" value="camera_link"/>
+		<param name="initial_pose" type="string" value="0 0 0 0 0 0"/>
+		<param name="publish_tf" type="bool" value="true"/>
+
+	</node>
+
+	<include if="$(arg publish_tf)"
+		file="$(find astra_launch)/launch/includes/astra_frames.launch">
+		<arg name="camera" value="$(arg camera)" />
+	</include>
+
+
+</launch>

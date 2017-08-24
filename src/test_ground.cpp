@@ -46,6 +46,12 @@ typedef g2o::LinearSolverCSparse< SlamBlockSolver::PoseMatrixType > SlamLinearSo
 // const double camera_fx = 680.7481079101562;
 // const double camera_fy = 680.7481079101562;
 
+// D: [0.0, 0.0, 0.0, 0.0, 0.0]
+// K: [570.3422241210938, 0.0, 319.5, 0.0, 570.3422241210938, 239.5, 0.0, 0.0, 1.0]
+// R: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+// P: [570.3422241210938, 0.0, 319.5, 0.0, 0.0, 570.3422241210938, 239.5, 0.0, 0.0, 0.0, 1.0, 0.0]
+
+
 CAMERA_INTRINSIC_PARAMETERS camera;
 ParameterReader pd;
 
@@ -95,12 +101,13 @@ void callback(const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image
 
       // 向globalOptimizer增加第一个顶点
       v = new g2o::VertexSE3();
-      v->setId( frame_count );
+      v->setId( lastFrame.frameID );
       v->setEstimate( Eigen::Isometry3d::Identity() ); //估计为单位矩阵
-      v->setFixed( true ); //第一个顶点固定，不用优化
+      v->setFixed( false ); //第一个顶点固定，不用优化
       globalOptimizer.addVertex( v );
 
-      keyframes.push_back( currFrame );
+
+      keyframes.push_back( lastFrame );
 
       // cloud = image2PointCloud( lastFrame.rgb, lastFrame.depth, camera );
       // viewer.showCloud( cloud );
@@ -112,7 +119,7 @@ void callback(const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image
       computeKeyPointsAndDesp(currFrame);
 
       // result = estimateMotion(lastFrame,currFrame,camera);
-      CHECK_RESULT PnP_result = checkKeyframes( keyframes.back(), currFrame, globalOptimizer, true, camera ); //匹配该帧与keyframes里最后一帧
+      CHECK_RESULT PnP_result = checkKeyframes( keyframes.back(), currFrame, globalOptimizer, false, camera ); //匹配该帧与keyframes里最后一帧
 
 
       //if no odom is updated, still publish the old one
@@ -134,26 +141,20 @@ void callback(const sensor_msgs::Image::ConstPtr& rgb , const sensor_msgs::Image
       case KEYFRAME:
           cout<<"This is a new keyframe"<<endl;
 
-
-          // 不远不近，刚好
-          /**
-           * This is important!!
-           * This is important!!
-           * This is important!!
-           * (very important so I've said three times!)
-           */
-          // 检测回环
-          // if (check_loop_closure)
-          // {
-          //     checkNearbyLoops( keyframes, currFrame, globalOptimizer );
-          //     checkRandomLoops( keyframes, currFrame, globalOptimizer );
+          checkNearbyLoops( keyframes, currFrame, globalOptimizer, camera);
+          checkRandomLoops( keyframes, currFrame, globalOptimizer, camera);
           // }
-          // keyframes.push_back( currFrame );
-          //
-          //
-          // globalOptimizer.initializeOptimization();
-          // globalOptimizer.optimize( 100 ); //可以指定优化步数
+          keyframes.push_back( currFrame );
 
+          globalOptimizer.initializeOptimization();
+          globalOptimizer.optimize( 10 ); //可以指定优化步数
+
+          g2o::VertexSE3* vertex = dynamic_cast<g2o::VertexSE3*>(globalOptimizer.vertex( (keyframes.back()).frameID ));
+          Eigen::Isometry3d pose = vertex->estimate(); //该帧优化后的位姿
+
+
+          cout<<"Odom: "<<pose.matrix()<<endl;
+          Odom = pose;
           // EulerToOdometry(result.rvec, result.tvec, Odom);
           //
           // Eigen::Isometry3d T = cvMat2Eigen( result.rvec, result.tvec );

@@ -1,10 +1,3 @@
-/*************************************************************************
-    > File Name: src/slamBase.cpp
-    > Author: xiang gao
-    > Mail: gaoxiang12@mails.tsinghua.edu.cn
-    > Implementation of slamBase.h
-    > Created Time: 2015年07月18日 星期六 15时31分49秒
- ************************************************************************/
 
 #include "slamBase.h"
 
@@ -87,9 +80,6 @@ void computeKeyPointsAndDesp( FRAME& frame)
     return;
 }
 
-// estimateMotion 计算两个帧之间的运动
-// 输入：帧1和帧2
-// 输出：rvec 和 tvec
 RESULT_OF_PNP estimateMotion( const FRAME& frame1, const FRAME& frame2, const CAMERA_INTRINSIC_PARAMETERS& camera )
 {
     static ParameterReader pd;
@@ -106,13 +96,13 @@ RESULT_OF_PNP estimateMotion( const FRAME& frame1, const FRAME& frame2, const CA
 
     // cv::Ptr< cv::flann::IndexParams > indexParams = new cv::flann::KDTreeIndexParams(4);
     // cv::Ptr< cv::flann::SearchParams >  searchParams = new cv::flann::SearchParams(100,0,true);
-    cv::FlannBasedMatcher matcher(new cv::flann::LshIndexParams(5, 24, 2));
+    static cv::FlannBasedMatcher matcher(new cv::flann::LshIndexParams(5, 24, 2));
     matcher.match( frame1.desp, frame2.desp, matches );
 
     cout<<"find total "<<matches.size()<<" matches."<<endl;
     vector< cv::DMatch > goodMatches;
-    double minDis = 9999;
-    double good_match_threshold = atof( pd.getData( "good_match_threshold" ).c_str() );
+    static double minDis = 9999;
+    static double good_match_threshold = atof( pd.getData( "good_match_threshold" ).c_str() );
     for ( size_t i=0; i<matches.size(); i++ )
     {
         if ( matches[i].distance < minDis )
@@ -152,20 +142,24 @@ RESULT_OF_PNP estimateMotion( const FRAME& frame1, const FRAME& frame2, const CA
     }
 
 
-    double camera_matrix_data[3][3] = {
+     static double camera_matrix_data[3][3] = {
         {camera.fx, 0, camera.cx},
         {0, camera.fy, camera.cy},
         {0, 0, 1}
     };
 
+     static double distCoeffs_matrix_data[5] = {0.023181,-0.092846,0.001821,0.000912,0.000000};
+
+
     // cout<<"solving pnp"<<endl;
     // 构建相机矩阵
-    cv::Mat cameraMatrix( 3, 3, CV_64F, camera_matrix_data );
+    static cv::Mat cameraMatrix( 3, 3, CV_64F, camera_matrix_data );
+    static cv::Mat distCoeffsMatrix( 5, 1, CV_64F, distCoeffs_matrix_data );
     cv::Mat rvec, tvec, inliers;
     // 求解pnp
     try {
       cout<<"PNP"<<endl;
-      cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 500, 0.6, 100, inliers );
+      cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, distCoeffsMatrix, rvec, tvec, false, 100, 0.6, 100, inliers );
       // cv::solvePnPRansac( pts_obj, pts_img, cameraMatrix, cv::Mat(), rvec, tvec, false, 1000, 0.6, 0.99, inliers,cv::SOLVEPNP_ITERATIVE );
       cout<<"PNP finished"<<endl;
      }
@@ -175,12 +169,12 @@ RESULT_OF_PNP estimateMotion( const FRAME& frame1, const FRAME& frame2, const CA
         //  std::cout << "exception caught: " << err_msg << std::endl;
      }
 
-    RESULT_OF_PNP result;
+    static RESULT_OF_PNP result;
     result.rvec = rvec;
     result.tvec = tvec;
     result.inliers = inliers.rows;
 
-    cout<<result.inliers<<endl;
+    // cout<<result.inliers<<endl;
     return result;
 }
 
@@ -275,6 +269,8 @@ CHECK_RESULT checkKeyframes( FRAME& f1, FRAME& f2, g2o::SparseOptimizer& opti, b
     static g2o::RobustKernel* robustKernel = g2o::RobustKernelFactory::instance()->construct( "Cauchy" );
     // 比较f1 和 f2
     RESULT_OF_PNP result = estimateMotion( f1, f2, camera );
+
+
     if ( result.inliers < min_inliers ) //inliers不够，放弃该帧
         return NOT_MATCHED;
     // 计算运动范围是否太大
@@ -302,12 +298,16 @@ CHECK_RESULT checkKeyframes( FRAME& f1, FRAME& f2, g2o::SparseOptimizer& opti, b
         v->setEstimate( Eigen::Isometry3d::Identity() );
         opti.addVertex(v);
     }
+
+
     // 边部分
     g2o::EdgeSE3* edge = new g2o::EdgeSE3();
     // 连接此边的两个顶点id
     edge->vertices() [0] = opti.vertex( f1.frameID );
     edge->vertices() [1] = opti.vertex( f2.frameID );
     edge->setRobustKernel( robustKernel );
+
+
     // 信息矩阵
     Eigen::Matrix<double, 6, 6> information = Eigen::Matrix< double, 6,6 >::Identity();
     // 信息矩阵是协方差矩阵的逆，表示我们对边的精度的预先估计
@@ -319,9 +319,12 @@ CHECK_RESULT checkKeyframes( FRAME& f1, FRAME& f2, g2o::SparseOptimizer& opti, b
     edge->setInformation( information );
     // 边的估计即是pnp求解之结果
     Eigen::Isometry3d T = cvMat2Eigen( result.rvec, result.tvec );
+
     edge->setMeasurement( T.inverse() );
-    // 将此边加入图中
+
     opti.addEdge(edge);
+
+
     return KEYFRAME;
 }
 
